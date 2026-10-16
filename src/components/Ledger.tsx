@@ -6,12 +6,19 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import type { ExpenseDTO } from "@/lib/expenses";
 import type { LedgerDTO } from "@/lib/ledgers";
 import { getCurrentLedgerId, setCurrentLedgerId } from "@/lib/current-ledger";
+import { API_KEY_HEADER, useApiKey } from "@/lib/openai-key";
 import { LedgerSheet } from "./LedgerSheet";
+import { ApiKeySheet } from "./ApiKeySheet";
+import { ManualEntrySheet } from "./ManualEntrySheet";
 import { DayStrip } from "./DayStrip";
 
 type User = { id: string; username: string; email: string; role: "user" | "admin" };
 type Scope = "all" | "mine";
-type Toast = { tone: "ok" | "warn"; text: string; entries?: ExpenseDTO[] };
+type Mode = "ai" | "manual";
+type Toast = { tone: "ok" | "warn"; text: string; entries?: ExpenseDTO[]; keyAction?: boolean };
+
+// Errors that only a different key can fix, so the toast offers to change it.
+const KEY_ERRORS = new Set(["missing_api_key", "invalid_api_key", "model_unavailable", "insufficient_quota"]);
 
 const EXAMPLES = ["午餐牛肉麵 150", "昨天搭計程車 230", "這個月薪水 52000", "全聯買菜 486，咖啡 65"];
 
@@ -19,6 +26,11 @@ const nf = new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 2 });
 
 function monthKey(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function todayIso() {
+  const d = new Date();
+  return `${monthKey(d)}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function shiftMonth(key: string, delta: number) {
@@ -63,6 +75,11 @@ export function Ledger() {
   const [sending, setSending] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  const apiKey = useApiKey();
+  const [keyOpen, setKeyOpen] = useState(false);
+  // AI parses free text (needs the user's key); manual records one entry from a form.
+  const [mode, setMode] = useState<Mode>("ai");
+  const [manualOpen, setManualOpen] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const signOut = useCallback(async () => {
@@ -175,33 +192,48 @@ export function Ledger() {
     e?.preventDefault();
     const value = text.trim();
     if (!value || sending || !ledgerId) return;
+    if (!apiKey) {
+      setKeyOpen(true);
+      return;
+    }
     setSending(true);
     setToast(null);
     try {
       const res = await fetch(`/api/ledgers/${ledgerId}/expenses`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: value }),
+        headers: { "Content-Type": "application/json", [API_KEY_HEADER]: apiKey },
+        body: JSON.stringify({ mode: "ai", text: value }),
       });
       const data = await res.json();
       if (res.status === 401) return signOut();
       if (!res.ok) {
-        setToast({ tone: "warn", text: data.error ?? "沒有辨識到記帳內容" });
+        setToast({ tone: "warn", text: data.error ?? "沒有辨識到記帳內容", keyAction: KEY_ERRORS.has(data.code) });
         return;
       }
       setText("");
       setToast({ tone: "ok", text: data.analysis.reply, entries: data.expenses });
-      // Jump to the month (and day, if one is picked) of the first new entry so the user sees it land.
-      const first = data.expenses[0]?.date as string | undefined;
-      const target = first?.slice(0, 7);
-      if (target && target !== month) setMonth(target);
-      else setVersion((v) => v + 1);
-      if (day && first) setDay(first);
+      landed(data.expenses);
     } catch {
       setToast({ tone: "warn", text: "網路連線發生問題，請再試一次" });
     } finally {
       setSending(false);
     }
+  }
+
+  /** Jumps to the month (and day, if one is picked) of the first new entry so the user sees it land. */
+  function landed(created: ExpenseDTO[]) {
+    const first = created[0]?.date;
+    const target = first?.slice(0, 7);
+    if (target && target !== month) setMonth(target);
+    else setVersion((v) => v + 1);
+    if (day && first) setDay(first);
+  }
+
+  function manualCreated(created: ExpenseDTO[]) {
+    setManualOpen(false);
+    const e = created[0];
+    setToast({ tone: "ok", text: e ? `已記下 1 筆${e.type === "income" ? "收入" : "支出"}` : "已記下", entries: created });
+    landed(created);
   }
 
   async function remove(id: string) {
@@ -240,6 +272,14 @@ export function Ledger() {
           </div>
         </button>
         <div className="flex shrink-0 items-center gap-1">
+          <button
+            onClick={() => setKeyOpen(true)}
+            aria-label={apiKey ? "OpenAI 金鑰" : "OpenAI 金鑰（尚未設定）"}
+            className="relative grid size-9 place-items-center rounded-full text-muted transition-colors hover:bg-surface hover:text-foreground"
+          >
+            <KeyIcon />
+            {!apiKey && <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-danger ring-2 ring-background" />}
+          </button>
           <Link
             href={`/ledger/stats?month=${month}`}
             aria-label="統計"
@@ -340,7 +380,7 @@ export function Ledger() {
       </div>
 
       {/* List */}
-      <section className="flex-1 px-5 pb-48 pt-4">
+      <section className="flex-1 px-5 pb-56 pt-4">
         {visible === null ? (
           <div className="space-y-3 pt-2">
             {[0, 1, 2].map((i) => (
@@ -398,7 +438,7 @@ export function Ledger() {
                       </button>
                       {open && (
                         <div className="flex items-center justify-between gap-3 bg-background/60 px-4 py-2.5 animate-rise">
-                          <p className="min-w-0 truncate text-xs text-muted">「{e.rawText}」</p>
+                          <p className="min-w-0 truncate text-xs text-muted">{e.rawText ? `「${e.rawText}」` : "手動記帳"}</p>
                           {canDelete && (
                             <button onClick={() => remove(e.id)} className="shrink-0 text-xs font-medium text-danger">
                               刪除
@@ -426,6 +466,11 @@ export function Ledger() {
               <p className="flex items-start gap-2">
                 {toast.tone === "ok" && <Sparkle />}
                 <span className="flex-1">{toast.text}</span>
+                {toast.keyAction && (
+                  <button onClick={() => setKeyOpen(true)} className="shrink-0 font-medium text-foreground underline underline-offset-2">
+                    設定金鑰
+                  </button>
+                )}
               </p>
               {toast.entries && toast.entries.length > 0 && (
                 <ul className="mt-2 space-y-1 border-t border-line pt-2">
@@ -442,32 +487,79 @@ export function Ledger() {
             </div>
           )}
 
-          <form onSubmit={submit} className="flex items-end gap-2 rounded-[28px] border border-line bg-surface p-2 pl-5 shadow-[0_8px_30px_rgba(0,0,0,0.08)]">
-            <textarea
-              ref={inputRef}
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                  e.preventDefault();
-                  submit();
-                }
-              }}
-              rows={1}
-              maxLength={500}
-              placeholder={sending ? "AI 分析中…" : "說說花了什麼，例如：午餐 150"}
-              disabled={sending}
-              className="max-h-32 min-h-10 flex-1 resize-none bg-transparent py-2.5 text-base outline-none [field-sizing:content] placeholder:text-muted disabled:opacity-60"
-            />
+          <div role="radiogroup" aria-label="記帳方式" className="mb-2 flex justify-center">
+            <div className="flex rounded-full border border-line bg-surface p-0.5 text-xs shadow-sm">
+              {(
+                [
+                  ["ai", "AI 記帳"],
+                  ["manual", "手動記帳"],
+                ] as const
+              ).map(([m, label]) => (
+                <button
+                  key={m}
+                  role="radio"
+                  aria-checked={mode === m}
+                  onClick={() => setMode(m)}
+                  className={`flex h-7 items-center gap-1 rounded-full px-3 font-medium transition-colors ${mode === m ? "bg-foreground text-background" : "text-muted hover:text-foreground"}`}
+                >
+                  {m === "ai" && <Sparkle inherit />}
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {mode === "ai" && !apiKey && !toast && (
             <button
-              type="submit"
-              aria-label="送出"
-              disabled={sending || !text.trim()}
-              className="grid size-11 shrink-0 place-items-center rounded-full bg-foreground text-background transition active:scale-95 disabled:opacity-25"
+              onClick={() => setKeyOpen(true)}
+              className="mb-3 flex w-full items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3 text-left text-sm shadow-lg transition-colors hover:border-foreground"
             >
-              {sending ? <span className="size-4 animate-spin rounded-full border-2 border-background/30 border-t-background" /> : <ArrowUp />}
+              <KeyIcon />
+              <span className="flex-1">
+                <span className="block font-medium">設定你的 OpenAI 金鑰</span>
+                <span className="block text-xs text-muted">AI 記帳使用你自己的金鑰，設定一次即可</span>
+              </span>
+              <Chevron dir="right" />
             </button>
-          </form>
+          )}
+
+          {mode === "manual" ? (
+            <button
+              onClick={() => setManualOpen(true)}
+              disabled={!current}
+              className="flex h-[60px] w-full items-center justify-center gap-2 rounded-[28px] bg-foreground text-[15px] font-medium text-background shadow-[0_8px_30px_rgba(0,0,0,0.12)] transition active:scale-[0.98] disabled:opacity-40"
+            >
+              <Plus />
+              新增一筆
+            </button>
+          ) : (
+            <form onSubmit={submit} className="flex items-end gap-2 rounded-[28px] border border-line bg-surface p-2 pl-5 shadow-[0_8px_30px_rgba(0,0,0,0.08)]">
+              <textarea
+                ref={inputRef}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    submit();
+                  }
+                }}
+                rows={1}
+                maxLength={500}
+                placeholder={sending ? "AI 分析中…" : "說說花了什麼，例如：午餐 150"}
+                disabled={sending}
+                className="max-h-32 min-h-10 flex-1 resize-none bg-transparent py-2.5 text-base outline-none [field-sizing:content] placeholder:text-muted disabled:opacity-60"
+              />
+              <button
+                type="submit"
+                aria-label="送出"
+                disabled={sending || !text.trim()}
+                className="grid size-11 shrink-0 place-items-center rounded-full bg-foreground text-background transition active:scale-95 disabled:opacity-25"
+              >
+                {sending ? <span className="size-4 animate-spin rounded-full border-2 border-background/30 border-t-background" /> : <ArrowUp />}
+              </button>
+            </form>
+          )}
         </div>
       </div>
 
@@ -487,6 +579,18 @@ export function Ledger() {
           onLeft={leftLedger}
         />
       )}
+      {keyOpen && <ApiKeySheet onClose={() => setKeyOpen(false)} />}
+      {manualOpen && current && (
+        <ManualEntrySheet
+          ledger={current}
+          defaultDate={day ?? todayIso()}
+          maxDate={todayIso()}
+          onClose={() => setManualOpen(false)}
+          onCreated={manualCreated}
+          onLedgerUpdate={(l) => upsertLedger(l)}
+          onSignedOut={signOut}
+        />
+      )}
     </div>
   );
 }
@@ -495,6 +599,15 @@ function ChartIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
       <path d="M3 15h12M5.5 12V8.5M9 12V4.5M12.5 12V7" />
+    </svg>
+  );
+}
+
+function KeyIcon() {
+  return (
+    <svg className="shrink-0" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="6" cy="12" r="3.25" />
+      <path d="M8.3 9.7L15 3M12.5 5.5l1.75 1.75M10.75 7.25l1.25 1.25" />
     </svg>
   );
 }
@@ -523,9 +636,18 @@ function ArrowUp() {
   );
 }
 
-function Sparkle() {
+function Plus() {
   return (
-    <svg className="mt-0.5 shrink-0 text-accent" width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+      <path d="M9 4v10M4 9h10" />
+    </svg>
+  );
+}
+
+/** `inherit` takes the surrounding text color instead of the accent. */
+function Sparkle({ inherit = false }: { inherit?: boolean }) {
+  return (
+    <svg className={inherit ? "shrink-0" : "mt-0.5 shrink-0 text-accent"} width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
       <path d="M8 0l1.8 6.2L16 8l-6.2 1.8L8 16l-1.8-6.2L0 8l6.2-1.8z" />
     </svg>
   );

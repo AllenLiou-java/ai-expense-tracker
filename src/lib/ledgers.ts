@@ -7,6 +7,7 @@ import { isDuplicateKeyError, jsonError } from "./api";
 import { getSessionUser, type SessionUser } from "./auth";
 import { connectDB } from "./db";
 import { Ledger, type LedgerDoc, type MemberRole } from "@/models/Ledger";
+import type { EntryType } from "./categories";
 
 // No 0/O/1/I/L so codes are easy to read aloud and type.
 const INVITE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
@@ -89,6 +90,7 @@ export function serializeLedger(
     members: MemberLike[];
     inviteCode?: string | null;
     inviteCodeExpiresAt?: Date | null;
+    categories?: { _id?: unknown; name: string; type: string }[];
     createdAt?: Date;
   },
   viewerId: string,
@@ -112,6 +114,12 @@ export function serializeLedger(
       isOwner && b.inviteCode
         ? { code: b.inviteCode, expiresAt: b.inviteCodeExpiresAt ?? null }
         : null,
+    // The ledger's own categories; the client merges them with the presets.
+    categories: (b.categories ?? []).map((c) => ({
+      id: String(c._id),
+      name: c.name,
+      type: c.type as EntryType,
+    })),
     createdAt: b.createdAt,
   };
 }

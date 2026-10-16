@@ -9,7 +9,8 @@ type PopulatedExpense = {
   description: string;
   merchant?: string | null;
   date: Date;
-  rawText: string;
+  source?: string | null;
+  rawText?: string | null;
   createdBy: unknown;
   createdAt?: Date;
 };
@@ -26,7 +27,8 @@ export function serializeExpense(e: PopulatedExpense) {
     description: e.description,
     merchant: e.merchant ?? null,
     date: new Date(e.date).toISOString().slice(0, 10),
-    rawText: e.rawText,
+    source: (e.source ?? "ai") as "ai" | "manual",
+    rawText: e.rawText ?? null,
     createdBy: {
       id: String(author?._id ?? author),
       username: author?.username ?? "已刪除的使用者",
