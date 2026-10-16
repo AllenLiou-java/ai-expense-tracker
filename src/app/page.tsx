@@ -1,69 +1,98 @@
-import Image from "next/image";
+import Link from "next/link";
 
-export default function Home() {
+const steps = [
+  {
+    n: "01",
+    title: "說一句話",
+    body: "「午餐牛肉麵 150，咖啡 65」— 不用選分類、不用填表。",
+  },
+  {
+    n: "02",
+    title: "AI 幫你拆解",
+    body: "自動辨識金額、類別、日期與店家，一句話可拆成多筆。",
+  },
+  {
+    n: "03",
+    title: "大家共用一本帳",
+    body: "每筆都標記是誰記的，家人、室友、旅伴一起看得清清楚楚。",
+  },
+];
+
+export default function Landing() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <main className="mx-auto flex w-full max-w-md flex-1 flex-col px-6 pb-10 pt-[max(1.5rem,env(safe-area-inset-top))]">
+      <header className="flex items-center justify-between">
+        <span className="text-[15px] font-semibold tracking-tight">Ledger</span>
+        <Link href="/login" className="text-sm text-muted transition-colors hover:text-foreground">
+          登入
+        </Link>
+      </header>
+
+      <section className="mt-16 animate-rise">
+        <p className="text-xs font-medium tracking-[0.2em] text-muted uppercase">AI Expense Tracker</p>
+        <h1 className="mt-4 text-[40px] font-semibold leading-[1.1] tracking-tight">
+          記帳，
+          <br />
+          只要一句話。
+        </h1>
+        <p className="mt-5 text-[15px] leading-relaxed text-muted">
+          打字就像傳訊息給朋友，剩下的分類、加總與多人對帳，交給 AI。
+        </p>
+      </section>
+
+      {/* A static preview of the composer + parsed result */}
+      <section
+        aria-hidden
+        className="mt-10 rounded-3xl border border-line bg-surface p-4 shadow-[0_1px_0_rgba(0,0,0,0.02)] animate-rise [animation-delay:80ms]"
+      >
+        <div className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-md bg-accent px-4 py-2.5 text-sm text-on-accent">
+          昨天和小美吃燒肉 1280，搭計程車 230
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+        <ul className="mt-4 divide-y divide-line">
+          {[
+            ["餐飲", "燒肉", "1,280"],
+            ["交通", "計程車", "230"],
+          ].map(([cat, desc, amt]) => (
+            <li key={desc} className="flex items-center gap-3 py-3">
+              <span className="grid size-9 place-items-center rounded-full bg-accent-soft text-xs font-medium text-accent">
+                {cat[0]}
+              </span>
+              <div className="flex-1">
+                <p className="text-sm font-medium">{desc}</p>
+                <p className="text-xs text-muted">{cat} · 昨天</p>
+              </div>
+              <span className="tabular text-sm font-medium">−{amt}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="mt-14 space-y-8">
+        {steps.map((s) => (
+          <div key={s.n} className="flex gap-5">
+            <span className="tabular pt-0.5 font-mono text-xs text-muted">{s.n}</span>
+            <div>
+              <h2 className="text-base font-semibold">{s.title}</h2>
+              <p className="mt-1 text-sm leading-relaxed text-muted">{s.body}</p>
+            </div>
+          </div>
+        ))}
+      </section>
+
+      <div className="sticky bottom-0 mt-auto pt-12 pb-[env(safe-area-inset-bottom)]">
+        <Link
+          href="/register"
+          className="flex h-14 w-full items-center justify-center rounded-full bg-foreground text-[15px] font-medium text-background transition-transform active:scale-[0.98]"
+        >
+          免費開始記帳
+        </Link>
+        <p className="mt-3 text-center text-xs text-muted">
+          已經有帳號？
+          <Link href="/login" className="text-foreground underline underline-offset-4">
+            登入
+          </Link>
+        </p>
+      </div>
+    </main>
   );
 }
